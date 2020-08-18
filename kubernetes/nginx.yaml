@@ -1,0 +1,159 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+spec:
+  selector:
+    app: nginx
+  type: LoadBalancer
+  ports:
+  - name: http
+    protocol: TCP
+    port: 8888
+    targetPort: 80
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+data:
+  nginx.conf: |-
+    events {
+        worker_connections  1024;
+    }
+    http {
+        server {
+            root /usr/share/nginx/html;
+            location / {
+                autoindex   on;
+                sendfile    on;
+                sendfile_max_chunk  1m;
+            }
+            location /assets/ {
+                autoindex   on;
+                sendfile    on;
+                sendfile_max_chunk  1m;
+            }
+        }
+    }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+  labels:
+    app: nginx
+spec:
+  selector:
+    matchLabels:
+      app: nginx
+  replicas: 2
+  template:
+    metadata:
+      name: nginx
+      labels:
+        app: nginx
+    spec:
+      volumes:
+      - name: nginx-config
+        configMap:
+          name: nginx-config
+          optional: true
+      - name: sensu-agent-defaults
+        configMap:
+          name: sensu-agent-defaults
+          optional: true
+      - name: sensu-asset-server-ca-cert
+        secret:
+          secretName: sensu-asset-server-ca-cert
+          defaultMode: 256
+          optional: true
+      - name: sensu-tls-mtls-ca
+        secret:
+          secretName: sensu-tls-mtls-ca
+          defaultMode: 256
+          optional: true  
+      - name: sensu-tls-mtls-agent
+        secret:
+          secretName: sensu-tls-mtls-agent
+          defaultMode: 256
+          optional: true 
+      - name: podinfo
+        downwardAPI:
+          items:
+            - path: "labels"
+              fieldRef:
+                fieldPath: metadata.labels
+            - path: "annotations"
+              fieldRef:
+                fieldPath: metadata.annotations
+      containers:
+      - name: nginx
+        image: enginex:latest
+        ports:
+        - protocol: TCP
+          containerPort: 80
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+
+      - name: sensu-agent
+        image: sensu/sensu:5.21.0
+        command: [
+          "/opt/sensu/bin/sensu-agent", "start", 
+          "--config-file", "/etc/sensu/agent/agent.yaml",
+          "--log-level", "debug"
+        ]
+        env:
+        - name: KUBE_KUBELET
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: SENSU_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: SENSU_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: SENSU_LABELS
+          value: >-
+            {
+              "foo": "bar",
+              "kube_namespace": "$(SENSU_NAMESPACE)",
+              "kubelet": "$(KUBE_KUBELET)"
+            }
+        - name: SENSU_BACKEND_URL
+          value: wss://sensu-backend-0.sensu.sensu-system.svc.cluster.local:8081 wss://sensu-backend-1.sensu.sensu-system.svc.cluster.local:8081 wss://sensu-backend-2.sensu.sensu-system.svc.cluster.local:8081
+        - name: SENSU_SUBSCRIPTIONS
+          value: kubernetes linux nginx
+        - name: SENSU_KEEPALIVE_INTERVAL
+          value: "5"
+        - name: SENSU_KEEPALIVE_WARNING_TIMEOUT
+          value: "10"
+        - name: SENSU_KEEPALIVE_CRITICAL_TIMEOUT
+          value: "60"
+        - name: SENSU_DEREGISTER
+          value: "true"
+        - name: SENSU_STATSD_EVENT_HANDLERS
+          value: statsd
+        volumeMounts:
+        - name: sensu-asset-server-ca-cert
+          mountPath: /etc/pki/ca-trust/source/anchors/sensu-ca-cert.pem # centos
+          subPath: sensu-ca-cert.pem
+        - name: sensu-asset-server-ca-cert
+          mountPath: /usr/local/share/ca-certificates/sensu-ca-cert.crt # alpine/debian
+          subPath: sensu-ca-cert 
+        - name: sensu-agent-defaults
+          mountPath: /etc/sensu/agent/
+        - name: sensu-tls-mtls-ca
+          mountPath: /etc/sensu/tls/mtls/ca/
+        - name: sensu-tls-mtls-agent
+          mountPath: /etc/sensu/tls/mtls/agent/ 
+        - name: podinfo
+          mountPath: /etc/podinfo 
