@@ -77,13 +77,13 @@ or use alternative commands not documented here.
 
    > _NOTE: if you are using minikube locally instead of a cloud provider, you made 
    >  need to also apply the pv.yaml file before loading the sensu-backend.yaml
-   >  to define a persistent volume manually.
+   >  to define a persistent volume manually._
 
    > _NOTE: if you are using minikube locally instead of a cloud provider, you made 
    >  need to also run minikube tunnel or use minikube service to expose the 
    > running load balanced services outside of the k8s cluster._
 
-5. Check to makesure example applications are running
+5. Check to make sure example applications are running
 
    Before moving on and working with the API examples, it's good to make sure the applications are ready to go.  
  
@@ -294,7 +294,7 @@ The sensu-backend api url will be `http://EXTERNAL-IP:8080`
    $ minikube service list -n sensu-system
    ```
 
-The sensu-backend statefulset that I had you deploy earlier, has a sensu-agent sidecard running in each pod.  The Downward API is used to populated environment variables in the sensu-agent running environment with information concerning details of the k8s configuration. These envvar are then used in the configuration of the sensu-agent labels.
+The sensu-backend statefulset that I had you deploy earlier, has a sensu-agent sidecard running in each pod.  The Downward API is used to populated environment variables in the sensu-agent running environment with information concerning details of the k8s configuration. These environment variables are then used in the configuration of the sensu-agent to populated the labels and set the agent's name to match the pod name.
 
    ```shell
    $ sensuctl entity list --namespace default --format json | jq '.[] | { 
