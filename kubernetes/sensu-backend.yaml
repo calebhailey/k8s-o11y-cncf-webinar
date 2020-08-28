@@ -69,11 +69,6 @@ spec:
       - name: sensu-backend-etcd
         persistentVolumeClaim:
           claimName: sensu-backend-etcd
-      - name: sensu-asset-server-ca-cert
-        secret:
-          secretName: sensu-asset-server-ca-cert
-          defaultMode: 256
-          optional: true
       containers:
       - name: sensu-backend
         image: sensu/sensu:5.21.0
@@ -110,12 +105,6 @@ spec:
         volumeMounts:
         - name: sensu-backend-etcd
           mountPath: /var/lib/sensu/etcd
-        - name: sensu-asset-server-ca-cert
-          mountPath: /etc/pki/ca-trust/source/anchors/sensu-ca-cert.pem # centos
-          subPath: sensu-ca-cert
-        - name: sensu-asset-server-ca-cert
-          mountPath: /usr/local/share/ca-certificates/sensu-ca-cert.crt # alpine/debian
-          subPath: sensu-ca-cert
         resources:
           requests:
             memory: 1024M
@@ -128,10 +117,29 @@ spec:
         image: sensu/sensu:5.21.0
         command: ["/opt/sensu/bin/sensu-agent", "start", "--log-level=debug", "--insecure-skip-tls-verify"]
         env:
+        - name: KUBE_KUBELET
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: SENSU_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: KUBE_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: SENSU_LABELS
+          value: >-
+            {
+              "foo": "bar",
+              "kube_namespace": "$(KUBE_NAMESPACE)",
+              "kubelet": "$(KUBE_KUBELET)"
+            }
         - name: SENSU_BACKEND_URL
           value: ws://sensu-backend-0.sensu.sensu-system.svc.cluster.local:8081 ws://sensu-backend-1.sensu.sensu-system.svc.cluster.local:8081 ws://sensu-backend-2.sensu.sensu-system.svc.cluster.local:8081
         - name: SENSU_NAMESPACE
-          value: sensu-system
+          value: default
         - name: SENSU_SUBSCRIPTIONS
           value: linux kubernetes sensu-backend
         - name: SENSU_KEEPALIVE_INTERVAL
@@ -147,9 +155,3 @@ spec:
         volumeMounts:
         - name: sensu-backend-etcd
           mountPath: /var/lib/sensu/etcd
-        - name: sensu-asset-server-ca-cert
-          mountPath: /etc/pki/ca-trust/source/anchors/sensu-ca-cert.pem # centos
-          subPath: sensu-ca-cert
-        - name: sensu-asset-server-ca-cert
-          mountPath: /usr/local/share/ca-certificates/sensu-ca-cert.crt # alpine/debian
-          subPath: sensu-ca-cert
