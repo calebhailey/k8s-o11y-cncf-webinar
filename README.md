@@ -17,7 +17,8 @@ Related:
 
 For the purposes of these examples, we will be accessing the Kubernetes APIs 
 via [`kube-proxy`][3]. The following examples were written with for linux or 
-MacOS users, so Windows users may need to 
+MacOS users, so Windows users may need to take additional configuration steps
+or use alternative commands not documented here.
 
 > NOTE: This should be obvious to anyone reading these instructions, but just
 > to be safe, please note the following prerequisites for running through 
@@ -25,7 +26,7 @@ MacOS users, so Windows users may need to
 > 
 > - A running Kubernetes cluster
 > - The `kubectl` CLI utility 
-> - `curl` (or some familiarity with translating commong curl commands to 
+> - `curl` (or some familiarity with translating common curl commands to 
 >   Powershell/etc)
 > - [`jq`][4] (mostly for convenience & readability of JSON output)
 > 
@@ -43,6 +44,9 @@ MacOS users, so Windows users may need to
    > already have something listening on port 8001, you'll need to pick a 
    > different port._
 
+   > _NOTE: you will need to run all subsequent `curl` and `kubectl` 
+   > commands in a different terminal window or pane._
+
 2. Set some environment variables. 
 
    For convenience only – let's set some environment variables in case we 
@@ -51,17 +55,49 @@ MacOS users, so Windows users may need to
    ```shell
    $ export K8S_NAMESPACE=default
    ```
+
+   > _NOTE: you will want to make sure this variable is exported in all terminals 
+   >  where you plan to run subsequent `curl` and `kubectl` commands._
    
 3. Verify the proxy connection. 
 
    ```shell
-   $ curl -I "http://127.0.0.1:8001/api/v1/namespaces/${K8S_NAMESPACE}/pods"  
+   $ curl "http://127.0.0.1:8001/api/v1/namespaces/${K8S_NAMESPACE}/pods"  
    ```
-   
-   > _NOTE: you will need to run this and all subsequent `curl` and `kubectl` 
-   > commands in adifferent terminal window or pane._
 
-   
+4. Setup the basic example applications.
+
+   To make things easier for you, I've predefined a simple nginx deployment in this repository. The deployment sets up running nginx pods using a deployment controller, and exposes nginx as a load balanced service.
+
+   ```shell
+   $ kubectl apply -f kubernetes/nginx.yaml -n default
+   $ kubectl create namespace sensu-system
+   $ kubectl apply -f kubernetes/sensu-backend.yaml -n sensu-system
+   ```
+
+   > _NOTE: if you are using minikube locally instead of a cloud provider, you made 
+   >  need to also apply the pv.yaml file before loading the sensu-backend.yaml
+   >  to define a persistent volume manually._
+
+   > _NOTE: if you are using minikube locally instead of a cloud provider, you made 
+   >  need to also run minikube tunnel or use minikube service to expose the 
+   > running load balanced services outside of the k8s cluster._
+
+5. Check to make sure example applications are running
+
+   Before moving on and working with the API examples, it's good to make sure the applications are ready to go.  
+ 
+   ```shell
+   $ kubectl get deployments -n default
+     NAME    READY   UP-TO-DATE   AVAILABLE   AGE
+     nginx   3/3     3            3           3m
+    
+   $ kubectl get statefulsets -n sensu-system
+     NAME            READY   AGE
+     sensu-backend   3/3     3m
+   ```
+   The important thing here is to make sure the application pods are all READY.  If they are not, you may need to take some extra steps to configure your k8s cluster. 
+
 ## Examples 
 
 If you've started using Kubernetes you've likely already been introduced to the 
@@ -92,6 +128,9 @@ documentation provides a great introduction to Services.
    
    ```shell
    $ kubectl get services --namespace ${K8S_NAMESPACE}
+   NAME         TYPE           CLUSTER-IP      EXTERNAL-IP     PORT(S)          AGE
+   kubernetes   ClusterIP      X.X.X.X         <none>          443/TCP          8m53s
+   nginx        LoadBalancer   X.X.X.X         X.X.X.X         8888:30645/TCP   2m2s
    ```
    
    **Kubernetes API**
@@ -105,10 +144,25 @@ documentation provides a great introduction to Services.
    **`kubectl` CLI**
    
    ```shell
-   $ export K8S_SERVICE=example
-   $ kubectl inspect service ${K8S_SERVICE} --namespace ${K8S_NAMESPACE}
-   NAME     TYPE           CLUSTER-IP      EXTERNAL-IP    PORT(S)           AGE
-   nginx    LoadBalancer   XX.XX.XX.XX     XX.XX.XX.XX    8888:30275/TCP    137d
+   $ export K8S_SERVICE=nginx
+   $ kubectl describe service ${K8S_SERVICE} --namespace ${K8S_NAMESPACE}
+   Name:                     nginx
+   Namespace:                default
+   Labels:                   <none>
+   Annotations:              kubectl.kubernetes.io/last-applied-configuration:
+                            {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"name":"nginx","namespace":"default"},"spec":{"ports":[{"name":"http","po...
+   Selector:                 app=nginx
+   Type:                     LoadBalancer
+   IP:                       X.X.X.X
+   LoadBalancer Ingress:     X.X.X.X
+   Port:                     http  8888/TCP
+   TargetPort:               80/TCP
+   NodePort:                 http  30645/TCP
+   Endpoints:                
+   Session Affinity:         None
+   External Traffic Policy:  Cluster
+   Events:                   <none>
+
    ```
    
    **Kubernetes API**
@@ -161,30 +215,132 @@ documentation provides a great introduction to Services.
    
 ### Pod API 
 
-1. 
+1. Listing Pods
 
+   **`kubectl` CLI**
+
+   ```shell
+   $ kubectl get pods --namespace ${K8S_NAMESPACE}
+     NAME                     READY   STATUS    RESTARTS   AGE
+     nginx-6dbd474499-cjn95   1/1     Running   0          10s
+     nginx-6dbd474499-qz9fx   1/1     Running   0          6s
+   ```
+
+   **Kubernetes API**
+
+   ```shell
+   $ curl -X GET "http://127.0.0.1:8001/api/v1/namespaces/${K8S_NAMESPACE}/pods" | jq '.items[].metadata.name '
+   "nginx-6dbd474499-cjn95"
+   "nginx-6dbd474499-qz9fx"
+   ```
+
+2. Getting info for specific pod
+
+   **`kubectl` CLI (abbreviated output)**
+   ```shell
+   $ kubectl describe pod nginx-6dbd474499-cjn95 --namespace ${K8S_NAMESPACE}
+   Name:         nginx-6dbd474499-cjn95
+   Namespace:    default
+   Priority:     0
+   Node:         minikube/192.168.99.106
+   Start Time:   Thu, 27 Aug 2020 17:08:37 -0800
+   Labels:       app=nginx
+                 pod-template-hash=6dbd474499
+   Annotations:  <none>
+   Status:       Running
+
+   ...
+
+   Conditions:
+     Type              Status
+     Initialized       True 
+     Ready             True 
+     ContainersReady   True 
+     PodScheduled      True 
+
+   ...
+
+   Events:
+     Type     Reason          Age                    From               Message
+     ----     ------          ----                   ----               -------
+     Normal   Scheduled       29m                    default-scheduler  Successfully assigned default/nginx-6dbd474499-cjn95 to minikube
+     Normal   Pulling         29m                    kubelet, minikube  Pulling image "nginx:latest"
+   ...
+
+   ```
+  
+   **Kubernetes API (abbreviated output)**
+   ```shell
+   $ curl -X GET "http://127.0.0.1:8001/api/v1/namespaces/${K8S_NAMESPACE}/pods/nginx-6dbd474499-cjn95" | jq '.metadata.name, .metadata.labels'
+   nginx-6dbd474499-cjn95
+   {
+   "app": "nginx",
+   "pod-template-hash": "6dbd474499"
+   }
+   ```
 ### Downward API
+To explore the Downward API, you'll need to configure the Sensu commandline tool to communicate with the sensu-backend running in your k8s cluster.  If running in a public cloud environment, you can obtain the correct IP address and port to use for the Sensu backend service with:
+   ```shell
+   $ kubectl get service sensu-lb -n sensu-system
+   ```
+The sensu-backend api url will be `http://EXTERNAL-IP:8080`
 
-```shell
-$ sensuctl entity list --namespace cncf-webinar --format json | jq '.[] | { 
-    name: .metadata.name, 
-    namespace: .metadata.namespace, 
-    labels: .metadata.labels
-  }'
-```
+
+  _NOTE: if you are using minikube locally instead of a cloud provider, you made 
+  need to use `minikube service list -n sensu-system` to expose the 
+  local network URL available outside of the k8s cluster._
+
+   ```shell
+   $ minikube service list -n sensu-system
+   ```
+
+The sensu-backend statefulset that I had you deploy earlier, has a sensu-agent sidecard running in each pod.  The Downward API is used to populated environment variables in the sensu-agent running environment with information concerning details of the k8s configuration. These environment variables are then used in the configuration of the sensu-agent to populated the labels and set the agent's name to match the pod name.
+
+   ```shell
+   $ sensuctl entity list --namespace default --format json | jq '.[] | { 
+       name: .metadata.name, 
+       labels: .metadata.labels
+     }'
+
+   {
+     "name": "sensu-backend-0",
+     "labels": {
+       "foo": "bar",
+       "kube_namespace": "sensu-system",
+       "kubelet": "minikube"
+     }
+   }
+   {
+     "name": "sensu-backend-1",
+     "labels": {
+       "foo": "bar",
+       "kube_namespace": "sensu-system",
+       "kubelet": "minikube"
+     }
+   }
+   {
+     "name": "sensu-backend-2",
+     "labels": {
+       "foo": "bar",
+       "kube_namespace": "sensu-system",
+       "kubelet": "minikube"
+     }
+   }
+
+   ```
 
 ### Events API
 
 1. Get events from the API 
 
    ```shell
-   $ curl -XGET -s "http://127.0.0.1:8888/api/v1/namespaces/cncf-webinar/events" | less
+   $ curl -XGET -s "http://127.0.0.1:8001/api/v1/namespaces/${K8S_NAMESPACE}/events" | less
    ```
 
    Alternatively, to see more readable output, get an EventList with a jq filter: 
 
    ```shell
-   $ curl -XGET -s "http://127.0.0.1:8888/api/v1/namespaces/cncf-webinar/events?fieldSelector=type%21%3DNormal" | jq '.items[] | {
+   $ curl -XGET -s "http://127.0.0.1:8001/api/v1/namespaces/${K8S_NAMESPACE}/events?fieldSelector=type%21%3DNormal" | jq '.items[] | {
        type: .type,
        message: .message,
        reason: .reason,
@@ -196,17 +352,11 @@ $ sensuctl entity list --namespace cncf-webinar --format json | jq '.[] | {
 
 ### Kubernetes API Watchers 
 
-1. Start the `kubectl` proxy. 
-
-   ```shell
-   $ kubectl proxy --port 8888
-   ```
-
-2. In a separate terminal/pane, get a PodList 
+1. In a separate terminal/pane, get a PodList 
 
    ```shell
    $ kubectl get pods
-   $ curl -XGET -s "http://127.0.0.1:8888/api/v1/namespaces/cncf-webinar/pods" | less 
+   $ curl -XGET -s "http://127.0.0.1:8001/api/v1/namespaces/${K8S_NAMESPACE}/pods" | head -n 20
    ```
 
    Notice the response type of `PodList` – this is a Kubernetes API resource 
@@ -215,19 +365,19 @@ $ sensuctl entity list --namespace cncf-webinar --format json | jq '.[] | {
 3. Copy the PodList `resourceVersion` 
 
    ```shell
-   $ PODLIST_VERSION=$(curl -XGET -s "http://127.0.0.1:8888/api/v1/namespaces/cncf-webinar/pods" | jq -r .metadata.resourceVersion)
+   $ PODLIST_VERSION=$(curl -XGET -s "http://127.0.0.1:8001/api/v1/namespaces/${K8S_NAMESPACE}/pods" | jq -r .metadata.resourceVersion)
    ```
 
 4. Start a PodList watcher 
 
    ```shell
-   $ curl -XGET -s "http://127.0.0.1:8888/api/v1/watch/namespaces/cncf-webinar/pods?resourceVersion=${PODLIST_VERSION}" 
+   $ curl -XGET -s "http://127.0.0.1:8001/api/v1/watch/namespaces/${K8S_NAMESPACE}/pods?resourceVersion=${PODLIST_VERSION}" 
    ```
 
    Alternatively, to see more readable output, start a PodList watcher with a jq filter: 
 
    ```shell
-   $ curl -XGET -s "http://127.0.0.1:8888/api/v1/watch/namespaces/cncf-webinar/pods?resourceVersion=${PODLIST_VERSION}" | jq '. | {
+   $ curl -XGET -s "http://127.0.0.1:8001/api/v1/watch/namespaces/${K8S_NAMESPACE}/pods?resourceVersion=${PODLIST_VERSION}" | jq '. | {
        action: .type,
        type: .object.kind,
        name: .object.metadata.name

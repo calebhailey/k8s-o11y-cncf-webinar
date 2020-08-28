@@ -101,3 +101,59 @@ spec:
           mountPath: /etc/nginx/nginx.conf
           subPath: nginx.conf
 
+      - name: sensu-agent
+        image: sensu/sensu:5.21.0
+        command: [
+          "/opt/sensu/bin/sensu-agent", "start", 
+          "--config-file", "/etc/sensu/agent/agent.yaml",
+          "--log-level", "debug"
+        ]
+        env:
+        - name: KUBE_KUBELET
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: SENSU_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: SENSU_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: SENSU_LABELS
+          value: >-
+            {
+              "foo": "bar",
+              "kube_namespace": "$(SENSU_NAMESPACE)",
+              "kubelet": "$(KUBE_KUBELET)"
+            }
+        - name: SENSU_BACKEND_URL
+          value: wss://sensu-backend-0.sensu.sensu-system.svc.cluster.local:8081 wss://sensu-backend-1.sensu.sensu-system.svc.cluster.local:8081 wss://sensu-backend-2.sensu.sensu-system.svc.cluster.local:8081
+        - name: SENSU_SUBSCRIPTIONS
+          value: kubernetes linux nginx
+        - name: SENSU_KEEPALIVE_INTERVAL
+          value: "5"
+        - name: SENSU_KEEPALIVE_WARNING_TIMEOUT
+          value: "10"
+        - name: SENSU_KEEPALIVE_CRITICAL_TIMEOUT
+          value: "60"
+        - name: SENSU_DEREGISTER
+          value: "true"
+        - name: SENSU_STATSD_EVENT_HANDLERS
+          value: statsd
+        volumeMounts:
+        - name: sensu-asset-server-ca-cert
+          mountPath: /etc/pki/ca-trust/source/anchors/sensu-ca-cert.pem # centos
+          subPath: sensu-ca-cert.pem
+        - name: sensu-asset-server-ca-cert
+          mountPath: /usr/local/share/ca-certificates/sensu-ca-cert.crt # alpine/debian
+          subPath: sensu-ca-cert 
+        - name: sensu-agent-defaults
+          mountPath: /etc/sensu/agent/
+        - name: sensu-tls-mtls-ca
+          mountPath: /etc/sensu/tls/mtls/ca/
+        - name: sensu-tls-mtls-agent
+          mountPath: /etc/sensu/tls/mtls/agent/ 
+        - name: podinfo
+          mountPath: /etc/podinfo 
